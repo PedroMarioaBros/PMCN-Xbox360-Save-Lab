@@ -5,6 +5,10 @@ on:
     paths:
       - ".github/workflows/reference-save-analysis.yml"
       - "games/42560802-lego-pirates/research/user_GAME1.gz.b64"
+  pull_request:
+    paths:
+      - ".github/workflows/reference-save-analysis.yml"
+      - "games/42560802-lego-pirates/research/**"
   workflow_dispatch:
 
 jobs:
