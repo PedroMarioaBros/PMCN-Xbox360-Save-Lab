@@ -1,0 +1,63 @@
+name: Reference save analysis
+
+on:
+  push:
+    paths:
+      - ".github/workflows/reference-save-analysis.yml"
+      - "games/42560802-lego-pirates/research/user_GAME1.gz.b64"
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode user GAME1
+        run: |
+          base64 -d games/42560802-lego-pirates/research/user_GAME1.gz.b64 | gzip -dc > /tmp/user_GAME1
+          sha256sum /tmp/user_GAME1
+          wc -c /tmp/user_GAME1
+      - name: Download Apollo 100 percent reference
+        run: |
+          curl -L --fail --retry 3 -o /tmp/ref.zip https://raw.githubusercontent.com/bucanero/apollo-saves/master/PS3/BLUS30744/00000001.zip
+          unzip -l /tmp/ref.zip
+          rm -rf /tmp/ref && mkdir /tmp/ref
+          unzip -q /tmp/ref.zip -d /tmp/ref
+          find /tmp/ref -type f -maxdepth 4 -printf '%p %s bytes\n'
+      - name: Analyze and compare
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, gzip, base64, os
+
+          user = Path('/tmp/user_GAME1').read_bytes()
+          cands = [p for p in Path('/tmp/ref').rglob('*') if p.is_file() and p.name.upper() in ('GAME','GAME1')]
+          if not cands:
+              cands = [p for p in Path('/tmp/ref').rglob('*') if p.is_file() and p.stat().st_size == len(user)]
+          print('CANDIDATES=', [(str(p), p.stat().st_size) for p in cands])
+          if not cands:
+              raise SystemExit('No GAME/GAME1 candidate found')
+          ref = cands[0].read_bytes()
+          print('REF_PATH=', cands[0])
+          print('USER_SIZE=', len(user), 'REF_SIZE=', len(ref))
+          print('USER_SHA256=', hashlib.sha256(user).hexdigest())
+          print('REF_SHA256=', hashlib.sha256(ref).hexdigest())
+          print('REF_FIRST64=', ref[:64].hex())
+          print('REF_GZ_B64=', base64.b64encode(gzip.compress(ref,9)).decode())
+
+          if len(ref) == len(user):
+              diffs=[i for i,(a,b) in enumerate(zip(user,ref)) if a!=b]
+              print('DIFF_BYTES=', len(diffs))
+              groups=[]
+              if diffs:
+                  s=p=diffs[0]
+                  for x in diffs[1:]:
+                      if x-p>1:
+                          groups.append((s,p))
+                          s=x
+                      p=x
+                  groups.append((s,p))
+              print('DIFF_GROUPS=', len(groups))
+              for a,b in groups[:500]:
+                  print(f'DIFF 0x{a:04X}-0x{b:04X} user={user[a:b+1].hex()} ref={ref[a:b+1].hex()}')
+          PY
